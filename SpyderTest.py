@@ -542,9 +542,11 @@ def getdata(halflimit=2200):
     classifiers = getclassifiers()
     return DF, feats, classifiers
 
-#Uncomment these two to run program
-DF, feats, classifiers = getdata()
-traincombos(DF, feats, classifiers)
+
+
+if __name__ == "__main__":
+    DF, feats, classifiers = getdata()
+    traincombos(DF, feats, classifiers)
 
 
 #start_time is set as time.time() at the start of the program in order to print the total time
