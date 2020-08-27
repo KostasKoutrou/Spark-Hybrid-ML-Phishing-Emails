@@ -4,6 +4,7 @@ import os
 import re
 import time
 import curvemetrics
+from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.classification import GBTClassifier, DecisionTreeClassifier\
@@ -33,14 +34,93 @@ start_time = time.time()
 #Returns a list of URLs that are in the email.
 class URLs:
     def get_feat(self, msg):
-        urls = re.findall(r"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+",
-                          msg.as_string())
+        emailtext = msg.as_string()
+        emailtext = emailtext.replace('=\n','')
+#        soup = BeautifulSoup(emailtext, 'lxml')
+#        urls = [link.get('href') for link in soup.find_all('a')]
+#        for a in soup.find_all('a'):
+#            a.decompose()
+#        emailtext = str(soup.contents[0])
+        regex = r"http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+"
+        urls = re.findall(regex, emailtext)
         #Appending an empty string to declare urls as a strings list in case
         #it is an empty string, for DataFrame consistency
         urls.append('')
         return urls
     def get_name(self):
         return 'urls'
+
+
+#Returns the maximum number of dots found at the URLs of the email.
+class ndots:
+    def get_feat(self, msg):
+        finder = URLs()
+        urls = finder.get_feat(msg)
+        ndots = 0
+        for url in urls:
+            temp_dots = url.count(".")
+            if(temp_dots>ndots): ndots = temp_dots
+        return ndots
+    def get_name(self):
+        return 'ndots'
+
+
+#Returns the number of specified port numbers in the URLs of the email.
+class nports:
+    def get_feat(self, msg):
+        finder = URLs()
+        urls = finder.get_feat(msg)
+        nports = 0
+        for url in urls:
+            try:
+                parsedurl = urlparse(url)
+                if(parsedurl.port):
+                    nports+=1
+            except:
+                pass
+        return nports
+    def get_name(self):
+        return 'nports'
+
+
+#Returns the total number of email recipients.
+class nrecs:
+    def get_feat(self, msg):
+        rectypes = ['To', 'Cc', 'Bcc']
+        reclist=[]
+        for rectype in rectypes:
+            temp = msg[rectype]
+            if(temp):
+                temp_recs = re.findall(r'[\w\.-]+@[\w\.-]+', temp)
+                reclist = reclist + temp_recs
+        reclist = list(dict.fromkeys(reclist))
+        return len(reclist)
+    def get_name(self):
+        return 'nrecs'
+
+
+#Boolean: Checks whether the sender domain is the same as the URLs' domains in the email.
+class checkdomains:
+    def get_feat(self, msg):
+        checkdomains = 1
+        if(msg['From']):
+            tempdom = msg['From']
+        elif(msg['Return-Path']):
+            tempdom = msg['Return-Path']
+        else:
+            tempdom = ""
+        sender = re.findall(r'@[\w.\-]+', tempdom)
+        if(sender):
+            sender_domain = sender[0][1:]
+            urls = URLs().get_feat(msg)
+            for url in urls:
+                if(url and (sender_domain not in url)):
+                    checkdomains = 0
+        else:
+            checkdomains = 0
+        return checkdomains
+    def get_name(self):
+        return 'checkdomains'
 
 
 #Returns the amount of URLs that the email has.
@@ -195,7 +275,7 @@ def mboxText2DF(filepath, Phishy, limit=5000):
     #mbox = mailbox.mbox(filepath)
     email_index = []
     finders = [NURLs(), encoding(), nparts(), hasHTML(), attachments(),
-               badwords(), ipurls(), diffhref(), forms(), scripts()]
+               badwords(), ipurls(), diffhref(), forms(), scripts(), ndots(), nports(), nrecs(), checkdomains()]
 
     i = 1
     for message in mbox:
@@ -512,10 +592,20 @@ def appendselector(stages, percent=0.5):
     #as the most "useful". In this case, 50% of the original amount of features are set to be kept.
     #With these Transformers, the stages for training Hybrid Classifiers are set (different Transformer
     #for TF-IDF and Word Embedding Text-Based Features.
-    print("Appending Chi-Square to stages with percentage " + str(percent))
+    if(percent<=1.0):
+        print("Appending Chi-Square to stages with percentage " + str(percent))
+        selectorType = 'percentile'
+        numTopFeatures = 50
+        percentile = percent
+    else:
+        print("Appending Chi-Square to stage with numTopFeatures " + str(percent))
+        selectorType = 'numTopFeatures'
+        numTopFeatures = percent
+        percentile = 0.1
+        
     stages[-1].setOutputCol('prefeatures')
-    selector = ChiSqSelector(featuresCol ='prefeatures', outputCol='features',
-                             selectorType='percentile', percentile=percent)
+    selector = ChiSqSelector(numTopFeatures=numTopFeatures, featuresCol ='prefeatures', outputCol='features',
+                             selectorType=selectorType, percentile=percentile)
     selectorstages = stages + [selector]
     return selectorstages
 
