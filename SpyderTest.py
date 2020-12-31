@@ -23,12 +23,27 @@ spark = SparkSession.builder\
 .config("spark.executor.memory", '10g')\
 .config("spark.driver.maxResultSize", '10g')\
 .getOrCreate()
-
+spark.sparkContext.setLogLevel("ERROR")
 
 
 start_time = time.time()
 
 
+
+#Returns the year that the email was sent in.
+class year:
+    def get_feat(self, msg):
+        date = None
+        if msg['Date']: date = msg['Date']
+        elif msg['date']: date  = msg['date']
+        else: year = 'no_date_field'
+        if date:
+            regex = r"([1-2][0-9]{3})"
+            year = re.findall(regex, date)
+            year = year[0] if year else 'yearnotfound_in_date_field'
+        return year
+    def get_name(self):
+        return 'year'
 
 
 #Returns a list of URLs that are in the email.
@@ -94,7 +109,9 @@ class nrecs:
                 temp_recs = re.findall(r'[\w\.-]+@[\w\.-]+', temp)
                 reclist = reclist + temp_recs
         reclist = list(dict.fromkeys(reclist))
-        return len(reclist)
+        reclistlen = len(reclist)
+        if(reclistlen < 0): print(reclistlen)
+        return reclistlen
     def get_name(self):
         return 'nrecs'
 
@@ -140,9 +157,40 @@ class encoding:
         enc = msg["Content-Transfer-Encoding"]
         if(not enc):
             enc = 'none'
+        enc = enc.lower()
+        enc = re.findall(r'[\w-]+', enc)[0]
+#        enc.replace("\n","")
+#        enc.replace("\r","")
+#        enc.replace(" ","")
         return enc
     def get_name(self):
         return 'encoding'
+
+
+#Returns an integer  representing a different a encoding.
+class nencoding:
+    def get_feat(self, msg):
+        encodings = {
+                "quoted-printable":1,
+                "none":2,
+                "base64":3,
+                "utf-8":4,
+                "8bit":5,
+                "binary":6,
+                "7bit":7,
+                }
+        enc = msg["Content-Transfer-Encoding"]
+        if(not enc):
+            enc = 'none'
+        enc = enc.lower()
+        enc = re.findall(r'[\w-]+', enc)[0]
+        if(enc in encodings):
+            nenc = encodings[enc]
+        else:
+            nenc = 8
+        return nenc
+    def get_name(self):
+        return "nencoding"
 
 
 #Returns the amount of parts that the email has.
@@ -275,7 +323,8 @@ def mboxText2DF(filepath, Phishy, limit=5000):
     #mbox = mailbox.mbox(filepath)
     email_index = []
     finders = [NURLs(), encoding(), nparts(), hasHTML(), attachments(),
-               badwords(), ipurls(), diffhref(), forms(), scripts(), ndots(), nports(), nrecs(), checkdomains()]
+               badwords(), ipurls(), diffhref(), forms(), scripts(),
+               ndots(), nports(), nrecs(), checkdomains()]
 
     i = 1
     for message in mbox:
@@ -313,7 +362,7 @@ def createDF(halflimit=2500):
         pass
     for file in files:
         if(limitcounter>0):
-            tempDF = mboxText2DF(root+"\\"+file, Phishy=1.0, limit=limitcounter)
+            tempDF = mboxText2DF(root+"/"+file, Phishy=1.0, limit=limitcounter)
             DFlist.append(tempDF)
             limitcounter -= tempDF.count()
             
@@ -322,7 +371,7 @@ def createDF(halflimit=2500):
         pass
     for file in files:
         if(limitcounter>0):
-            tempDF = mboxText2DF(root+"\\"+file, Phishy=0.0, limit=limitcounter)
+            tempDF = mboxText2DF(root+"/"+file, Phishy=0.0, limit=limitcounter)
             DFlist.append(tempDF)
             limitcounter -= tempDF.count()
     
@@ -331,7 +380,7 @@ def createDF(halflimit=2500):
     DF = reduce(DataFrame.union, DFlist)
     DF = DF.drop('id')
     for item in DF.dtypes:
-        if item[1] == 'bigint': DF = DF.withColumn(item[0], DF[item[0]].cast('byte'))
+        if item[1] == 'bigint': DF = DF.withColumn(item[0], DF[item[0]].cast('int'))
         if item[1] == 'double': DF = DF.withColumn(item[0], DF[item[0]].cast('float'))
         
 #    DF = DF.select('id','label','stemmed')
@@ -592,7 +641,7 @@ def appendselector(stages, percent=0.5):
     #as the most "useful". In this case, 50% of the original amount of features are set to be kept.
     #With these Transformers, the stages for training Hybrid Classifiers are set (different Transformer
     #for TF-IDF and Word Embedding Text-Based Features.
-    if(percent<=1.0):
+    if(percent<1.0):
         print("Appending Chi-Square to stages with percentage " + str(percent))
         selectorType = 'percentile'
         numTopFeatures = 50
@@ -635,7 +684,7 @@ def getdata(halflimit=2200):
 
 
 if __name__ == "__main__":
-    DF, feats, classifiers = getdata()
+    DF, feats, classifiers = getdata(halflimit=20000)
     traincombos(DF, feats, classifiers)
 
 

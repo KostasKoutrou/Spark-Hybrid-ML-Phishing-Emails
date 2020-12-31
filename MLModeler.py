@@ -180,11 +180,26 @@ class pipemodeler:
         total = fp + fn + tp + tn
         self.confusionMatrix = [[tn,fn],[fp,tp]]
         self.accuracy = (tp+tn)/total
-        self.precision = tp / (tp + fp)
-        self.recall = tp / (tp + fn)
-        self.f1measure = 2 * self.precision * self.recall / (self.precision + self.recall)
-        self.falsePositive = fp / (fp + tn)
-        self.falseNegative = fn / (fn + tp)
+        if(tp+fp):
+            self.precision = tp / (tp + fp)
+        else:
+            self.precision = 0
+        if(tp+fn):
+            self.recall = tp / (tp + fn)
+        else:
+            self.recall = 0
+        if(self.precision + self.recall):
+            self.f1measure = 2 * self.precision * self.recall / (self.precision + self.recall)
+        else:
+            self.f1measure = 0
+        if(fp+tn):
+            self.falsePositive = fp / (fp + tn)
+        else:
+            self.falsePositive = 0
+        if(fn+tp):
+            self.falseNegative = fn / (fn + tp)
+        else:
+            self.falseNegative = 0
         
     
     def printperformance(self):
