@@ -7,6 +7,11 @@ from pyspark.sql.functions import udf
 from pyspark.ml.feature import RegexTokenizer, StopWordsRemover
 from pyspark.ml import Pipeline
 
+import nltk
+from nltk.stem import WordNetLemmatizer
+# nltk.download('averaged_perceptron_tagger')
+from nltk.corpus import wordnet
+
 
 
 #Get the email and return a dictionary list with "mimeType" and "payload"
@@ -101,7 +106,7 @@ def get_clean_text(msg):
 
 
 
-#Used as a UDF (User Defined Function) for the next function
+#Used as a UDF (User Defined Function) for the textDF2setDF function
 def stem2(in_vec):
     stemmer = snowballstemmer.stemmer('english')
     out_vec = []
@@ -110,6 +115,37 @@ def stem2(in_vec):
         if(len(to_out) > 2):
             out_vec.append(to_out)
     return out_vec
+
+
+
+#Used as a UDF (User Defined Function) for the textDF2setDF function
+def lem2(in_vec):
+    
+    def pos_tagger(nltk_tag): 
+        if nltk_tag.startswith('J'): 
+            return wordnet.ADJ 
+        elif nltk_tag.startswith('V'): 
+            return wordnet.VERB 
+        elif nltk_tag.startswith('N'): 
+            return wordnet.NOUN 
+        elif nltk_tag.startswith('R'): 
+            return wordnet.ADV 
+        else:           
+            return None
+    
+    lemmatizer = WordNetLemmatizer()
+    pos_tagged = nltk.pos_tag(in_vec)
+    
+    wordnet_tagged = list(map(lambda x: (x[0], pos_tagger(x[1])), pos_tagged)) 
+    
+    lemmatized_sentence = []
+    for word, tag in wordnet_tagged:
+        if len(word) > 2:
+            if tag is None:
+                lemmatized_sentence.append(word)
+            else:
+                lemmatized_sentence.append(lemmatizer.lemmatize(word, tag)) 
+    return lemmatized_sentence
 
 
 
@@ -125,6 +161,9 @@ def textDF2setDF(textDF, textCol):
     pipeline = Pipeline(stages = stages)
     pipelineModel = pipeline.fit(textDF)
     textDF = pipelineModel.transform(textDF)
+    
+    lemmatizer_udf = udf(lem2, ArrayType(StringType()))
+    textDF = textDF.withColumn("lemmatized", lemmatizer_udf("stopWremoved"))
     
     stemmer_udf = udf(stem2, ArrayType(StringType()))
     textDF = textDF.withColumn("stemmed", stemmer_udf("stopWremoved"))

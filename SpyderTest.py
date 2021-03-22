@@ -30,6 +30,14 @@ start_time = time.time()
 
 
 
+#Returns the MD5 hash of the stemmed list of words
+class MD5hash:
+    def get_feat(self, msg):
+        pass
+    def get_name(self):
+        return 'MD5hash'
+
+
 #Returns the year that the email was sent in.
 class year:
     def get_feat(self, msg):
@@ -390,12 +398,12 @@ def createDF(halflimit=2500):
 
 #Takes a DataFrame and returns predictions based on TF-IDF features and
 #the Logistic Regression Classifier.
-def tfidf(DF):
+def tfidf(DF,inputCol="stemmed"):
     #Create Evaluator Instance
     evaluator = BinaryClassificationEvaluator(rawPredictionCol="rawPrediction")
     
     #Create Pipelines stages Instaces
-    tf1 = HashingTF(inputCol="stemmed", outputCol="rawFeatures", numFeatures=500)
+    tf1 = HashingTF(inputCol=inputCol, outputCol="rawFeatures", numFeatures=500)
     idf = IDF(inputCol="rawFeatures", outputCol="features", minDocFreq=2.0)
     lr = LogisticRegression(maxIter=20)
     basic_pipeline = Pipeline(stages=[tf1, idf, lr])
@@ -420,9 +428,9 @@ def tfidf(DF):
 
 #Takes a DataFrame and returns predictions based on Word Embedding features and
 #the Gradient Boosted Trees Classifier.
-def embedding(DF):
+def embedding(DF, inputCol="stemmed"):
     evaluator = BinaryClassificationEvaluator(rawPredictionCol="rawPrediction")
-    word2vec = Word2Vec(inputCol = 'stemmed', outputCol = 'features')
+    word2vec = Word2Vec(inputCol = inputCol, outputCol = 'features')
     model = word2vec.fit(DF)
     resultDF = model.transform(DF)
     dftrain, dftest = resultDF.randomSplit([0.80, 0.20])
@@ -440,9 +448,9 @@ def embedding(DF):
 
 
 #Takes a DataFrame and returns a DataFrame with a column of TF-IDF Features.
-def tfidffeats(DF):
+def tfidffeats(DF, inputCol='stemmed'):
     #Takes stemmed text DF and returns TF-IDF Features
-    tf = HashingTF(inputCol='stemmed', outputCol='rawFeatures', numFeatures=500)
+    tf = HashingTF(inputCol=inputCol, outputCol='rawFeatures', numFeatures=500)
     idf = IDF(inputCol='rawFeatures', outputCol='features', minDocFreq=2.0)
     pipeline = Pipeline(stages=[tf, idf])
     tfidf = pipeline.fit(DF)
@@ -452,9 +460,9 @@ def tfidffeats(DF):
 
 
 #Takes a DataFrame and returns a DataFrame with a column of Word Embedding Features.
-def embeddingfeats(DF):
+def embeddingfeats(DF, inputCol='stemmed'):
     #Takes stemmed text DF and returns Word Embedding (word2vec) Features
-    word2vec = Word2Vec(inputCol='stemmed', outputCol='features')
+    word2vec = Word2Vec(inputCol=inputCol, outputCol='features')
     embedding = word2vec.fit(DF)
     embeddingDF = embedding.transform(DF)
     return embeddingDF
@@ -604,30 +612,30 @@ def propstages(DF):
 
 
 #Create Text Based stages
-def textstages():
+def textstages(inputCol='stemmed'):
     #TF-IDF is a bag-of-words function, which gives higher weight to words that appear
     #frequently on a document but not frequently in all of the documents. The output is a features column.
-    tf = HashingTF(inputCol='stemmed', outputCol='rawFeatures', numFeatures=500)
+    tf = HashingTF(inputCol=inputCol, outputCol='rawFeatures', numFeatures=500)
     idf = IDF(inputCol='rawFeatures', outputCol='features', minDocFreq=2.0)
     #idf = IDF(inputCol='rawFeatures', outputCol='features', minDocFreq=2.0)
     
     #Word2Vec is a Word Embedding function, which represents each word as a vector,
     #with words with similar meanings having neighboring vectors. The output is a feature column.
-    word2vec = Word2Vec(inputCol='stemmed', outputCol='features')
+    word2vec = Word2Vec(inputCol=inputCol, outputCol='features')
     return [[tf,idf], [word2vec]]
 
 
 
 #Create Hybrid stages, taking into account both text and properties.
-def hybridstages(DF):
+def hybridstages(DF, inputCol='stemmed'):
     #With these Transformers a Pipeline is built that will take the features coming from the
     #text (TF-IDF or Word2Vec) and the properties of the email and train a Hybrid Clasifier.
     prstages = propstages(DF)
     prstages[-1].setOutputCol('propfeatures')
 #    propassembler = VectorAssembler(inputCols = assemblerInputs, outputCol='propfeatures')
 #    propstages = stringIndexer + [encoder, propassembler]
-    totalword2vec = Word2Vec(inputCol='stemmed', outputCol='wordfeatures')
-    tf = HashingTF(inputCol='stemmed', outputCol='rawFeatures', numFeatures=500)
+    totalword2vec = Word2Vec(inputCol=inputCol, outputCol='wordfeatures')
+    tf = HashingTF(inputCol=inputCol, outputCol='rawFeatures', numFeatures=500)
     totalidf = IDF(inputCol='rawFeatures', outputCol='wordfeatures', minDocFreq=2.0)
     totalassembler = VectorAssembler(inputCols = ['wordfeatures','propfeatures'], outputCol='features')
     totalstages = prstages+[totalword2vec,totalassembler]
@@ -673,18 +681,18 @@ def traincombos(DF, feats, classifiers):
 
 
 
-def getdata(halflimit=2200):
+def getdata(halflimit=2200, inputCol="stemmed"):
     global DF
     DF = trycreateDF(halflimit)
     #A list of Feature Retrievers and one of Classifiers is made to test every combination.
-    feats = [propstages(DF)] + textstages() + hybridstages(DF)
+    feats = [propstages(DF)] + textstages(inputCol=inputCol) + hybridstages(DF, inputCol=inputCol)
     classifiers = getclassifiers()
     return DF, feats, classifiers
 
 
 
 if __name__ == "__main__":
-    DF, feats, classifiers = getdata(halflimit=20000)
+    DF, feats, classifiers = getdata(halflimit=20000, inputCol="lemmatized")
     traincombos(DF, feats, classifiers)
 
 
