@@ -4,6 +4,7 @@ import os
 import re
 import time
 import curvemetrics
+import sparknlp
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
@@ -14,15 +15,24 @@ from pyspark.mllib.evaluation import BinaryClassificationMetrics, MulticlassMetr
 from pyspark.ml.feature import HashingTF, IDF, Word2Vec,\
 OneHotEncoderEstimator, StringIndexer, VectorAssembler, ChiSqSelector
 from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
-from pyspark.ml import Pipeline
+from pyspark.ml import Pipeline, Transformer
 from pyspark.sql import DataFrame
+from pyspark.sql.functions import explode
 from functools import reduce
+from sparknlp.base import *
+from sparknlp.annotator import *
+from sparknlp.embeddings import *
 from pyspark.sql import SparkSession
-spark = SparkSession.builder\
-.config("spark.driver.memory", '10g')\
-.config("spark.executor.memory", '10g')\
-.config("spark.driver.maxResultSize", '10g')\
-.getOrCreate()
+# spark = SparkSession.builder\
+#     .config("spark.driver.memory", '10g')\
+#     .config("spark.executor.memory", '10g')\
+#     .config("spark.driver.maxResultSize", '0')\
+#     .config("spark.jars.packages", "com.johnsnowlabs.nlp:spark-nlp_2.12:3.0.0")\
+#     .appName("Spark NLP")\
+#     .master("local[4]")\
+#     .config("spark.kryoserializer.buffer.max", "2000M")\
+#     .getOrCreate()
+spark = sparknlp.start()
 spark.sparkContext.setLogLevel("ERROR")
 
 
@@ -584,6 +594,7 @@ def getclassifiers():
 
 #Creating the Properties Retriever Stages
 def propstages(DF):
+    DF = DF.drop('joinedLem')
     cat_cols = [item[0] for item in DF.dtypes if item[1]=='string']
     num_cols = [item[0] for item in DF.dtypes if ('int' in item[1] or 'float' in item[1] or 'double' in item[1])]
     bool_cols = [item[0] for item in DF.dtypes if item[1]=='boolean']
@@ -622,7 +633,18 @@ def textstages(inputCol='stemmed'):
     #Word2Vec is a Word Embedding function, which represents each word as a vector,
     #with words with similar meanings having neighboring vectors. The output is a feature column.
     word2vec = Word2Vec(inputCol=inputCol, outputCol='features')
-    return [[tf,idf], [word2vec]]
+    
+    #Document Assembler to get Annotators (data type used by spark-NLP)
+    docas = DocumentAssembler().setInputCol('joinedLem').setOutputCol('document')
+    tok = Tokenizer().setInputCols(['document']).setOutputCol('token')
+    #add BERT class
+    bert = BertEmbeddings.pretrained('bert_base_cased', 'en').setInputCols(['document','token']).setOutputCol('bertFeatures')
+    embfin = sparknlp.EmbeddingsFinisher()\
+        .setInputCols('bertFeatures')\
+        .setOutputCols('features')\
+        .setOutputAsVector(True)
+    ex = Exploder()
+    return [[tf,idf], [word2vec], [docas, tok, bert, embfin, ex]]
 
 
 
@@ -679,6 +701,18 @@ def traincombos(DF, feats, classifiers):
             featlist.append(result)
         curvemetrics.plotCurves(featlist)
 
+
+
+class Exploder(Transformer):
+    def __init__(self, inputCol='features', outputCol='features'):
+        self.inputCol = inputCol
+        self.outputCol = outputCol
+        self.uid = 'Exploder123'
+    
+    def _transform(self, df: DataFrame) -> DataFrame:
+        df = df.withColumn(self.outputCol, explode(self.inputCol))
+        return df
+    
 
 
 def getdata(halflimit=2200, inputCol="stemmed"):

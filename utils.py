@@ -3,7 +3,7 @@ import mailbox
 from bs4 import BeautifulSoup
 import snowballstemmer
 from pyspark.sql.types import ArrayType, StringType
-from pyspark.sql.functions import udf
+from pyspark.sql.functions import udf, col
 from pyspark.ml.feature import RegexTokenizer, StopWordsRemover
 from pyspark.ml import Pipeline
 
@@ -167,4 +167,7 @@ def textDF2setDF(textDF, textCol):
     
     stemmer_udf = udf(stem2, ArrayType(StringType()))
     textDF = textDF.withColumn("stemmed", stemmer_udf("stopWremoved"))
+    
+    join_udf = udf(lambda x: ",".join(x))
+    textDF = textDF.withColumn("joinedLem", join_udf(col("lemmatized")))
     return textDF
