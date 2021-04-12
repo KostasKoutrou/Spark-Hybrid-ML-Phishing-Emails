@@ -51,7 +51,8 @@ def print_content_types(msg):
 def unhtmlify(msg): 
     payload_dict = getpayload_dict(msg)
     for part in payload_dict:
-        if(part['mimeType'] in ['text/html','text/plain']):
+        # if(part['mimeType'] in ['text/html','text/plain']):
+        if('text' in part['mimeType'] or 'multipart' in part['mimeType']):
             soup = BeautifulSoup(part['payload'], "lxml")
             #Getting just the text didn't clear scripts and styles,
             #so we clear them manually.
@@ -80,7 +81,8 @@ def get_email_text(msg):
     email_text = ""
     for part in unhtmlified:
         #Append only the text parts of the email.
-        if(part['mimeType'] in ['text/plain','text/html']):
+        # if(part['mimeType'] in ['text/plain','text/html']):
+        if('text' in part['mimeType'] or 'multipart' in part['mimeType']):
             email_text += part['payload']
     return email_text
 
