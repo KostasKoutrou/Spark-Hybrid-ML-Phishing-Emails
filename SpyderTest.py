@@ -17,8 +17,9 @@ OneHotEncoderEstimator, StringIndexer, VectorAssembler, ChiSqSelector
 from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
 from pyspark.ml import Pipeline, Transformer
 from pyspark.sql import DataFrame
-from pyspark.sql.functions import explode
+from pyspark.sql.functions import explode, udf, col
 from functools import reduce
+from pyspark.ml.linalg import VectorUDT, DenseVector, SparseVector
 from sparknlp.base import *
 from sparknlp.annotator import *
 from sparknlp.embeddings import *
@@ -643,8 +644,8 @@ def textstages(inputCol='stemmed'):
         .setInputCols('bertFeatures')\
         .setOutputCols('features')\
         .setOutputAsVector(True)
-    ex = Exploder()
-    return [[tf,idf], [word2vec], [docas, tok, bert, embfin, ex]]
+    embfinfin = EmbeddingsFinisherFinisher()
+    return [[tf,idf], [word2vec], [docas, tok, bert, embfin, embfinfin]]
 
 
 
@@ -711,6 +712,51 @@ class Exploder(Transformer):
     
     def _transform(self, df: DataFrame) -> DataFrame:
         df = df.withColumn(self.outputCol, explode(self.inputCol))
+        return df
+
+
+
+class EmbeddingsFinisherFinisher(Transformer):
+    def __init__(self, inputCol='features', outputCol='features'):
+        self.inputCol = inputCol
+        self.outputCol = outputCol
+        self.uid = 'EmbeddingsFinisherFinisher_123'
+    
+    def _transform(self, df: DataFrame) -> DataFrame:
+        # df = df.withColumn(self.outputCol, df[self.inputCol].getItem(0))
+        
+        def None2EmptyVector(featCol):
+            # Getting 1st element because EmbeddingsFinisher outputs it like
+            #[<contents>]
+            nonlocal featSize
+            try:
+                featCol = featCol[0]
+            except:
+                featCol = SparseVector(featSize,{})
+            #Calculating Features Length
+            # featSize = 0
+            # i = 0
+            # while featSize == 0:
+            #     try:
+            #         featSize = len(df.select(featCol).collect()[i][0])
+            #     except:
+            #         featSize = 0
+            #     i += 1
+            # #Replacing empty cells with Features with values of 0
+            # if featCol == None:
+            #     featCol = DenseVector([0]*featSize)
+            return featCol
+        featSize = 0
+        i = 0
+        while featSize == 0:
+            try:
+                featSize = len(df.select(self.inputCol).collect()[i][0][0])
+            except:
+                featSize = 0
+            i += 1
+        udfNone2EmptyVector = udf(None2EmptyVector, VectorUDT())
+        # df = df.withColumn(self.outputCol, udfNone2EmptyVector(self.outputCol))
+        df = df.withColumn(self.outputCol, udfNone2EmptyVector(self.inputCol))
         return df
     
 
