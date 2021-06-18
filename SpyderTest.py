@@ -16,7 +16,7 @@ from pyspark.ml.classification import GBTClassifier, DecisionTreeClassifier\
 , LinearSVC, NaiveBayes
 from pyspark.mllib.evaluation import BinaryClassificationMetrics, MulticlassMetrics
 from pyspark.ml.feature import HashingTF, IDF, Word2Vec,\
-OneHotEncoderEstimator, StringIndexer, VectorAssembler, ChiSqSelector, VectorSlicer, MinMaxScaler
+OneHotEncoderEstimator, StringIndexer, VectorAssembler, ChiSqSelector, MinMaxScaler
 from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
 from pyspark.ml import Pipeline, Transformer
 from pyspark.sql import DataFrame
@@ -34,15 +34,15 @@ from pyspark.ml.param.shared import *
 from pyspark.ml.util import DefaultParamsReadable, DefaultParamsWritable 
 
 
-# spark = SparkSession.builder \
-#     .appName("Spark NLP")\
-#     .master("local[4]")\
-#     .config("spark.driver.memory","16G")\
-#     .config("spark.executor.memory","10G")\
-#     .config("spark.driver.maxResultSize", "0") \
-#     .config("spark.kryoserializer.buffer.max", "1000M")\
-#     .config("spark.jars.packages", "com.johnsnowlabs.nlp:spark-nlp_2.11:2.7.1")\
-#     .getOrCreate()
+#spark = SparkSession.builder\
+#    .appName("Spark NLP")\
+#    .master("local[4]")\
+#    .config("spark.driver.memory","16G")\
+#    .config("spark.executor.memory","10G")\
+#    .config("spark.driver.maxResultSize", "10G")\
+#    .config("spark.kryoserializer.buffer.max", "1000M")\
+#    .config("spark.jars.packages", "com.johnsnowlabs.nlp:spark-nlp_2.11:2.7.1")\
+#    .getOrCreate()
 spark = sparknlp.start()
 spark.sparkContext.setLogLevel("ERROR")
 
@@ -377,7 +377,7 @@ def mboxText2DF(filepath, Phishy, limit=5000):
 #    emailDF = spark.createDataFrame(email_index,('id', 'label', 'emailText'))
     emailDF = spark.createDataFrame(email_index,['id', 'label', 'emailText'] + [finder.get_name() for finder in finders])
     emailDF = utils.textDF2setDF(emailDF, "emailText")
-    # emailDF = emailDF.drop('emailText', 'words', 'stopWremoved')
+    emailDF = emailDF.drop('emailText', 'words', 'stopWremoved')
     return emailDF
 
 
@@ -550,7 +550,7 @@ class Classifier:
 
 def getclassifiers():
     #Classifiers used for training a model.
-    lr = LogisticRegression(maxIter=10)
+    lr = LogisticRegression()
     lrgrid = ParamGridBuilder()\
     .addGrid(lr.regParam, [0.1, 0.01])\
     .addGrid(lr.elasticNetParam, [0.0, 0.5, 1.0])\
@@ -572,7 +572,7 @@ def getclassifiers():
     .build()
     RF = Classifier(rf, rfgrid)
     
-    gbt = GBTClassifier(maxDepth=3, maxBins=16, maxIter=5)
+    gbt = GBTClassifier()
     gbtgrid = ParamGridBuilder()\
     .addGrid(gbt.maxDepth, [2, 5])\
     .addGrid(gbt.maxIter, [5, 20])\
@@ -587,7 +587,7 @@ def getclassifiers():
     .build()
     MPC = Classifier(mpc, mpcgrid)
     
-    lsvc = LinearSVC(maxIter=15)
+    lsvc = LinearSVC()
     lsvcgrid = ParamGridBuilder()\
     .addGrid(lsvc.threshold, [0.0, 0.05])\
     .build()
@@ -644,13 +644,13 @@ def textstages(inputCol='stemmed'):
     
     #Word2Vec is a Word Embedding function, which represents each word as a vector,
     #with words with similar meanings having neighboring vectors. The output is a feature column.
-    word2vec = Word2Vec(inputCol=inputCol, outputCol='features')
+    word2vec = Word2Vec(vectorSize=300, inputCol=inputCol, outputCol='features')
     
     #Document Assembler to get Annotators (data type used by spark-NLP)
     docas = DocumentAssembler().setInputCol('joinedLem').setOutputCol('document')
     tok = Tokenizer().setInputCols(['document']).setOutputCol('token')
     #add BERT class
-    bert = BertEmbeddings.pretrained('bert_base_cased', 'en').setInputCols(['document','token']).setOutputCol('bertFeatures')
+    bert = BertEmbeddings.pretrained('bert_base_uncased', 'en').setInputCols(['document','token']).setOutputCol('bertFeatures')
     embfin = sparknlp.EmbeddingsFinisher()\
         .setInputCols('bertFeatures')\
         .setOutputCols('finfeatures')\
@@ -694,11 +694,11 @@ def appendselector(stages, percent=0.5):
         numTopFeatures = percent
         percentile = 0.1
         
-    stages[-1].setOutputCol('prefeatures')
-    # selector = ChiSqSelector(numTopFeatures=numTopFeatures, featuresCol ='prefeatures', outputCol='features',
-    selector = ChiSqSelector(numTopFeatures=numTopFeatures, featuresCol ='prefeatures', outputCol='selfeatures',
+    stages[-1].setOutputCol('prefeatures1')
+#    selector = ChiSqSelector(numTopFeatures=numTopFeatures, featuresCol ='prefeatures1', outputCol='features',
+    selector = ChiSqSelector(numTopFeatures=numTopFeatures, featuresCol ='prefeatures1', outputCol='selfeatures',
                              selectorType=selectorType, percentile=percentile)
-    scaler  = MinMaxScaler(inputCol='selfeatures', outputCol='features')
+    scaler = MinMaxScaler(inputCol='selfeatures', outputCol='features')
     selectorstages = stages + [selector, scaler]
     return selectorstages
 
@@ -709,11 +709,16 @@ def traincombos(DF, feats, classifiers):
         featlist = []
         for c in classifiers:
             print("NEXT ##################################")
-            # result = classtrain(DF, f, c.classifier, c.classifiergrid)
-            result = classtrain(DF, f, c.classifier)
-            # print(result.model.bestModel.stages[-1].explainParams())
-            result.printperformance()
-            featlist.append(result)
+#            result = classtrain(DF, f, c.classifier, c.classifiergrid)
+#            result = classtrain(DF, f, c.classifier)
+            try:
+                result = classtrain(DF, appendselector(f, percent=0.7), c.classifier)
+#                result = classtrain(DF, f, c.classifier)
+#            print(result.model.bestModel.stages[-1].explainParams())
+                result.printperformance()
+                featlist.append(result)
+            except:
+                print('!!!!! TRAINING ERROR: for ' + str(f) + str(c.classifier) + ' - skipping... !!!!!')
         curvemetrics.plotCurves(featlist)
 
 
@@ -862,17 +867,26 @@ class EmbeddingsFinisherFinisherModel(Model, HasInputCol, HasOutputCol,
         df = df.withColumn(self.getOutputCol(), udfNone2EmptyVector(self.getInputCol()))
         return df
     
+def zeroSparse2Dense(DF, col='Word2vec'):
+    def denseudf(wcol):
+        if wcol==SparseVector(300, {}):
+            wcol = DenseVector([0.0]*300)
+        return wcol
     
+    udfdense = udf(denseudf, VectorUDT())
+    DF = DF.withColumn(col, udfdense(col))
+    return DF
 
 
 
 def getdata(halflimit=2200, inputCol="lemmatized"):
-    # global DF
-    # DF = trycreateDF(halflimit)
-    DF = spark.read.parquet("df_balanced.parquet")
+#    global DF
+#    DF = trycreateDF(halflimit)
+    DF = spark.read.load("df_balanced_word2vec.parquet")
     #A list of Feature Retrievers and one of Classifiers is made to test every combination.
     feats = [propstages(DF)] + textstages(inputCol=inputCol) + hybridstages(DF, inputCol=inputCol)
     classifiers = getclassifiers()
+#    return DF, feats, classifiers
     return DF, feats, classifiers
 
 

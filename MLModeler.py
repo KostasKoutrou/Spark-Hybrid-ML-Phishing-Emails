@@ -118,7 +118,7 @@ class pipemodeler:
         
         #In case there is word2vec which has negative features, scale the features
         #to nonnegative values because naive bayes requires that
-        # if(('Word2Vec' in str(stages)) and ('NaiveBayes' in str(self.classifier))):
+#        if(('Word2Vec' in str(stages)) and ('NaiveBayes' in str(self.classifier))):
         if('NaiveBayes' in str(self.classifier)):
             print('Word2Vec and NaiveBayes detected, scaling to nonnegative [0.0,1.0]')
             stages[-1].setOutputCol('prefeatures')
