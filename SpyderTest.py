@@ -266,7 +266,8 @@ class attachments:
 class badwords:
     def get_feat(self,msg):
         words = ['link','click','confirm','user','customer',
-                 'client','suspend','restrict','verify','protect']
+                 'client','suspend','restrict','verify','protect','payment',
+                 'suspension']
         clean_text = utils.get_clean_text(msg).lower()
         counter = 0
         for word in words:
@@ -334,6 +335,85 @@ class scripts:
     def get_name(self):
         return 'scripts'
 
+#Returns the amount of "bad words" (the ones shown in the list in the function)
+#that are in the email subject.
+class subject_badwords:
+    def get_feat(self,msg):
+        words = ['verify','bank','debit','payment','suspension']
+        if msg['Subject']: email_subject = msg['Subject']
+        elif msg['subject']: email_subject = msg['subject']
+        else: email_subject = 'none'
+        email_subject = email_subject.lower()
+        counter = 0
+        for word in words:
+            counter += email_subject.count(word)
+        return counter
+    def get_name(self):
+        return 'subject_badwords'
+
+#Boolean feature which represents the presene of the "RE" string in the begining
+#of the email subjects.
+class RE_presence:
+    def get_feat(self,msg):
+        if msg['Subject']: email_subject = msg['Subject']
+        elif msg['subject']: email_subject = msg['subject']
+        else: email_subject = 'none'
+        email_subject = email_subject.lower()
+        if email_subject[0:2] == 're': presence=1
+        else: presence=0
+        return presence
+    def get_name(self):
+        return 'RE_presence'
+
+#Integer feature which represents the number of words in the email body text.
+class word_count:
+    def get_feat(self,msg):
+        return len(utils.get_clean_text(msg).split())
+    def get_name(self):
+        return 'word_count'
+
+#Integer feature which represents the number of characters in the email body text.
+class char_count:
+    def get_feat(self,msg):
+        email_text = utils.get_clean_text(msg)
+        words = email_text.split()
+        len_words = [len(x) for x in words]
+        return sum(len_words)
+    def get_name(self):
+        return 'char_count'
+
+#Ratio of number of words to number of characters in the email body text.
+class richness:
+    def get_feat(self,msg):
+        email_text = utils.get_clean_text(msg)
+        word_quantity = len(email_text.split())
+        char_quantity = sum([len(x) for x in email_text.split()])
+        richness = word_quantity/char_quantity
+    def get_name(self):
+        return 'richness'
+
+#Number of distinct words in the email body
+class distinct_words:
+    def get_feat(self,msg):
+        email_text = utils.get_clean_text(msg)
+        words = email_text.split()
+        distinct_words = set(words)
+        return len(distinct_words)
+    def get_name(self):
+        return 'distinct_words'
+
+#Number of script MIME parts in the email
+class script_parts:
+    def get_feat(self, msg):
+        script_parts = 0
+        for part in msg.walk():
+            content = part.get_content_type()
+            if(content in ['text/execmascript','application/ecmascript',
+                           'application/javascript','text/vbscript']):
+                script_parts += 1
+        return script_parts
+    def get_name(self):
+        return 'script_parts'
 
 
 #Used to help the next function to operate properly.
@@ -354,7 +434,9 @@ def mboxText2DF(filepath, Phishy, limit=5000):
     email_index = []
     finders = [NURLs(), encoding(), nparts(), hasHTML(), attachments(),
                badwords(), ipurls(), diffhref(), forms(), scripts(),
-               ndots(), nports(), nrecs(), checkdomains()]
+               ndots(), nports(), nrecs(), checkdomains(), subject_badwords(),
+               script_parts(), distinct_words(), char_count(),
+               word_count(), RE_presence()]
 
     i = 1
     for message in mbox:
@@ -880,9 +962,9 @@ def zeroSparse2Dense(DF, col='Word2vec'):
 
 
 def getdata(halflimit=2200, inputCol="lemmatized"):
-#    global DF
-#    DF = trycreateDF(halflimit)
-    DF = spark.read.load("df_balanced_word2vec.parquet")
+    global DF
+    DF = trycreateDF(halflimit)
+    # DF = spark.read.load("df_balanced_word2vec.parquet")
     #A list of Feature Retrievers and one of Classifiers is made to test every combination.
     feats = [propstages(DF)] + textstages(inputCol=inputCol) + hybridstages(DF, inputCol=inputCol)
     classifiers = getclassifiers()
