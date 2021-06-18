@@ -1,6 +1,6 @@
 from pyspark.mllib.evaluation import BinaryClassificationMetrics, MulticlassMetrics
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
-from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
+from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit, CrossValidator
 from pyspark.ml import Pipeline
 from pyspark.ml.feature import MinMaxScaler
 
@@ -118,7 +118,8 @@ class pipemodeler:
         
         #In case there is word2vec which has negative features, scale the features
         #to nonnegative values because naive bayes requires that
-        if(('Word2Vec' in str(stages)) and ('NaiveBayes' in str(self.classifier))):
+        # if(('Word2Vec' in str(stages)) and ('NaiveBayes' in str(self.classifier))):
+        if('NaiveBayes' in str(self.classifier)):
             print('Word2Vec and NaiveBayes detected, scaling to nonnegative [0.0,1.0]')
             stages[-1].setOutputCol('prefeatures')
             scaler  = MinMaxScaler(inputCol='prefeatures', outputCol='features')
@@ -137,14 +138,22 @@ class pipemodeler:
             self.predictions = model.transform(dftest)
             self.model=model
         else:
-            print('Training with a Parameter Grid...')
-            tvs = TrainValidationSplit(estimator=self.pipeline,
-                                       estimatorParamMaps=self.classifiergrid,
-                                       evaluator=BinaryClassificationEvaluator(),
-                                       parallelism=4,
-                                       trainRatio=0.8)
-            dftrain, dftest = self.DF.randomSplit([0.80, 0.20])
-            model = tvs.fit(dftrain)
+            # print('Training with a Parameter Grid...')
+            # tvs = TrainValidationSplit(estimator=self.pipeline,
+            #                             estimatorParamMaps=self.classifiergrid,
+            #                             evaluator=BinaryClassificationEvaluator(),
+            #                             parallelism=4s,
+            #                             trainRatio=0.7)
+            # dftrain, dftest = self.DF.randomSplit([0.70, 0.30])
+            # model = tvs.fit(dftrain)
+            print('Cross Validation Hyperparamter Tunning...')
+            cv = CrossValidator(estimator=self.pipeline,
+                                estimatorParamMaps=self.classifiergrid,
+                                evaluator=BinaryClassificationEvaluator(),
+                                parallelism=4,
+                                numFolds=5)
+            dftrain, dftest = self.DF.randomSplit([0.70, 0.30])
+            model = cv.fit(dftrain)
             self.predictions = model.transform(dftest)
             self.model=model
             

@@ -7,13 +7,16 @@ import curvemetrics
 import sparknlp
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
+from pyspark import keyword_only
+# from pyspark.ml.param.shared import HasInputCol, HasOutputCol, Param, Params, TypeConverters
+from pyspark.ml.util import DefaultParamsReadable, DefaultParamsWritable, JavaMLReadable, JavaMLWritable
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 from pyspark.ml.classification import GBTClassifier, DecisionTreeClassifier\
 , LogisticRegression, RandomForestClassifier, MultilayerPerceptronClassifier\
 , LinearSVC, NaiveBayes
 from pyspark.mllib.evaluation import BinaryClassificationMetrics, MulticlassMetrics
 from pyspark.ml.feature import HashingTF, IDF, Word2Vec,\
-OneHotEncoderEstimator, StringIndexer, VectorAssembler, ChiSqSelector
+OneHotEncoderEstimator, StringIndexer, VectorAssembler, ChiSqSelector, VectorSlicer, MinMaxScaler
 from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
 from pyspark.ml import Pipeline, Transformer
 from pyspark.sql import DataFrame
@@ -24,17 +27,25 @@ from sparknlp.base import *
 from sparknlp.annotator import *
 from sparknlp.embeddings import *
 from pyspark.sql import SparkSession
-# spark = SparkSession.builder\
-#     .config("spark.driver.memory", '10g')\
-#     .config("spark.executor.memory", '10g')\
-#     .config("spark.driver.maxResultSize", '0')\
-#     .config("spark.jars.packages", "com.johnsnowlabs.nlp:spark-nlp_2.12:3.0.0")\
+
+
+from pyspark.ml.pipeline import Estimator, Model
+from pyspark.ml.param.shared import *
+from pyspark.ml.util import DefaultParamsReadable, DefaultParamsWritable 
+
+
+# spark = SparkSession.builder \
 #     .appName("Spark NLP")\
 #     .master("local[4]")\
-#     .config("spark.kryoserializer.buffer.max", "2000M")\
+#     .config("spark.driver.memory","16G")\
+#     .config("spark.executor.memory","10G")\
+#     .config("spark.driver.maxResultSize", "0") \
+#     .config("spark.kryoserializer.buffer.max", "1000M")\
+#     .config("spark.jars.packages", "com.johnsnowlabs.nlp:spark-nlp_2.11:2.7.1")\
 #     .getOrCreate()
 spark = sparknlp.start()
 spark.sparkContext.setLogLevel("ERROR")
+
 
 
 start_time = time.time()
@@ -366,7 +377,7 @@ def mboxText2DF(filepath, Phishy, limit=5000):
 #    emailDF = spark.createDataFrame(email_index,('id', 'label', 'emailText'))
     emailDF = spark.createDataFrame(email_index,['id', 'label', 'emailText'] + [finder.get_name() for finder in finders])
     emailDF = utils.textDF2setDF(emailDF, "emailText")
-    emailDF = emailDF.drop('emailText', 'words', 'stopWremoved')
+    # emailDF = emailDF.drop('emailText', 'words', 'stopWremoved')
     return emailDF
 
 
@@ -642,9 +653,9 @@ def textstages(inputCol='stemmed'):
     bert = BertEmbeddings.pretrained('bert_base_cased', 'en').setInputCols(['document','token']).setOutputCol('bertFeatures')
     embfin = sparknlp.EmbeddingsFinisher()\
         .setInputCols('bertFeatures')\
-        .setOutputCols('features')\
+        .setOutputCols('finfeatures')\
         .setOutputAsVector(True)
-    embfinfin = EmbeddingsFinisherFinisher()
+    embfinfin = EmbeddingsFinisherFinisher(inputCol='finfeatures', outputCol='features')
     return [[tf,idf], [word2vec], [docas, tok, bert, embfin, embfinfin]]
 
 
@@ -684,9 +695,11 @@ def appendselector(stages, percent=0.5):
         percentile = 0.1
         
     stages[-1].setOutputCol('prefeatures')
-    selector = ChiSqSelector(numTopFeatures=numTopFeatures, featuresCol ='prefeatures', outputCol='features',
+    # selector = ChiSqSelector(numTopFeatures=numTopFeatures, featuresCol ='prefeatures', outputCol='features',
+    selector = ChiSqSelector(numTopFeatures=numTopFeatures, featuresCol ='prefeatures', outputCol='selfeatures',
                              selectorType=selectorType, percentile=percentile)
-    selectorstages = stages + [selector]
+    scaler  = MinMaxScaler(inputCol='selfeatures', outputCol='features')
+    selectorstages = stages + [selector, scaler]
     return selectorstages
 
 
@@ -696,8 +709,9 @@ def traincombos(DF, feats, classifiers):
         featlist = []
         for c in classifiers:
             print("NEXT ##################################")
-            result = classtrain(DF, f, c.classifier, c.classifiergrid)
-            print(result.model.bestModel.stages[-1].explainParams())
+            # result = classtrain(DF, f, c.classifier, c.classifiergrid)
+            result = classtrain(DF, f, c.classifier)
+            # print(result.model.bestModel.stages[-1].explainParams())
             result.printperformance()
             featlist.append(result)
         curvemetrics.plotCurves(featlist)
@@ -716,14 +730,114 @@ class Exploder(Transformer):
 
 
 
-class EmbeddingsFinisherFinisher(Transformer):
-    def __init__(self, inputCol='features', outputCol='features'):
-        self.inputCol = inputCol
-        self.outputCol = outputCol
-        self.uid = 'EmbeddingsFinisherFinisher_123'
+# class EmbeddingsFinisherFinisher(Transformer, HasInputCol, HasOutputCol,
+#                                  DefaultParamsReadable, DefaultParamsWritable):
+#     @keyword_only
+#     # def __init__(self, inputCol='features', outputCol='features'):
+#     def __init__(self, inputCol=None, outputCol=None):
+#         super(EmbeddingsFinisherFinisher, self).__init__()
+#         # self._paramMap = {}
+#         # self._params = {}
+#         # self.inputCol = inputCol
+#         # self.outputCol = outputCol
+#         # self._setDefault(inputCol='features')
+#         # self._setDefault(outputCol='features')
+#         # self.uid = 'EmbeddingsFinisherFinisher_123'
+#         kwargs = self._input_kwargs
+#         self.setParams(**kwargs)
     
-    def _transform(self, df: DataFrame) -> DataFrame:
-        # df = df.withColumn(self.outputCol, df[self.inputCol].getItem(0))
+#     @keyword_only
+#     # def setParams(self, inputCol='features', outputCol='features'):
+#     def setParams(self, inputCol=None, outputCol=None):
+#         kwargs = self._input_kwargs
+#         return self._set(**kwargs)
+    
+#     def setInputCol(self, value):
+#         return self._set(inputCol=value)
+    
+#     def setOutputCol(self, value):
+#         return self._set(outputCol=value)
+    
+#     def _transform(self, df: DataFrame) -> DataFrame:
+#     # def _transform(self, df):
+#         # df = df.withColumn(self.outputCol, df[self.inputCol].getItem(0))
+        
+#         def None2EmptyVector(featCol):
+#             # Getting 1st element because EmbeddingsFinisher outputs it like
+#             #[<contents>]
+#             nonlocal featSize
+#             try:
+#                 featCol = featCol[0]
+#             except:
+#                 featCol = SparseVector(featSize,{})
+#             #Calculating Features Length
+#             # featSize = 0
+#             # i = 0
+#             # while featSize == 0:
+#             #     try:
+#             #         featSize = len(df.select(featCol).collect()[i][0])
+#             #     except:
+#             #         featSize = 0
+#             #     i += 1
+#             # #Replacing empty cells with Features with values of 0
+#             # if featCol == None:
+#             #     featCol = DenseVector([0]*featSize)
+#             return featCol
+#         featSize = 0
+#         i = 0
+#         while featSize == 0:
+#             try:
+#                 # featSize = len(df.select(self.inputCol).collect()[i][0][0])
+#                 featSize = len(df.select(self.getInputCol()).collect()[i][0][0])
+#             except:
+#                 featSize = 0
+#             i += 1
+#         udfNone2EmptyVector = udf(None2EmptyVector, VectorUDT())
+#         # df = df.withColumn(self.outputCol, udfNone2EmptyVector(self.outputCol))
+#         # df = df.withColumn(self.outputCol, udfNone2EmptyVector(self.inputCol))
+#         df = df.withColumn(self.getOutputCol(), udfNone2EmptyVector(self.getOutputCol()))
+#         return df
+    
+
+
+class EmbeddingsFinisherFinisher(Estimator, HasInputCol, HasOutputCol,
+                                  DefaultParamsReadable, DefaultParamsWritable):
+    
+    @keyword_only
+    def __init__(self, inputCol=None, outputCol=None):
+        super(EmbeddingsFinisherFinisher, self).__init__()
+        kwargs = self._input_kwargs
+        self.setParams(**kwargs)
+    
+    @keyword_only
+    def setParams(self, inputCol=None, outputCol=None):
+        kwargs = self._input_kwargs
+        return self._set(**kwargs)
+    
+    # def setInputCol(self, value):
+    #     return self._set(inputCol=value)
+    
+    # def setOutputCol(self, value):
+    #     return self._set(outputCol=value)
+    
+    def _fit(self, df):
+        return EmbeddingsFinisherFinisherModel(inputCol=self.getInputCol(), outputCol=self.getOutputCol())
+
+class EmbeddingsFinisherFinisherModel(Model, HasInputCol, HasOutputCol,
+                                      DefaultParamsReadable, DefaultParamsWritable):
+    
+    @keyword_only
+    def __init__(self, inputCol=None, outputCol=None):
+        super(EmbeddingsFinisherFinisherModel, self).__init__()
+        kwargs = self._input_kwargs
+        self.setParams(**kwargs)
+    
+    @keyword_only
+    def setParams(self, inputCol=None, outputCol=None):
+        kwargs = self._input_kwargs
+        return self._set(**kwargs)
+    
+    def _transform(self, df):
         
         def None2EmptyVector(featCol):
             # Getting 1st element because EmbeddingsFinisher outputs it like
@@ -733,37 +847,29 @@ class EmbeddingsFinisherFinisher(Transformer):
                 featCol = featCol[0]
             except:
                 featCol = SparseVector(featSize,{})
-            #Calculating Features Length
-            # featSize = 0
-            # i = 0
-            # while featSize == 0:
-            #     try:
-            #         featSize = len(df.select(featCol).collect()[i][0])
-            #     except:
-            #         featSize = 0
-            #     i += 1
-            # #Replacing empty cells with Features with values of 0
-            # if featCol == None:
-            #     featCol = DenseVector([0]*featSize)
             return featCol
+        
         featSize = 0
         i = 0
         while featSize == 0:
             try:
-                featSize = len(df.select(self.inputCol).collect()[i][0][0])
+                featSize = len(df.select(self.getInputCol()).collect()[i][0][0])
             except:
                 featSize = 0
             i += 1
+        
         udfNone2EmptyVector = udf(None2EmptyVector, VectorUDT())
-        # df = df.withColumn(self.outputCol, udfNone2EmptyVector(self.outputCol))
-        df = df.withColumn(self.outputCol, udfNone2EmptyVector(self.inputCol))
+        df = df.withColumn(self.getOutputCol(), udfNone2EmptyVector(self.getInputCol()))
         return df
+    
     
 
 
-def getdata(halflimit=2200, inputCol="stemmed"):
-    global DF
-    DF = trycreateDF(halflimit)
+
+def getdata(halflimit=2200, inputCol="lemmatized"):
+    # global DF
+    # DF = trycreateDF(halflimit)
+    DF = spark.read.parquet("df_balanced.parquet")
     #A list of Feature Retrievers and one of Classifiers is made to test every combination.
     feats = [propstages(DF)] + textstages(inputCol=inputCol) + hybridstages(DF, inputCol=inputCol)
     classifiers = getclassifiers()

@@ -2,7 +2,7 @@ import re
 import mailbox
 from bs4 import BeautifulSoup
 import snowballstemmer
-from pyspark.sql.types import ArrayType, StringType
+from pyspark.sql.types import ArrayType, StringType, IntegerType
 from pyspark.sql.functions import udf, col
 from pyspark.ml.feature import RegexTokenizer, StopWordsRemover
 from pyspark.ml import Pipeline
@@ -172,4 +172,15 @@ def textDF2setDF(textDF, textCol):
     
     join_udf = udf(lambda x: ",".join(x))
     textDF = textDF.withColumn("joinedLem", join_udf(col("lemmatized")))
+    return textDF
+
+
+
+def countdiff(textDF, textCol, lemCol):
+    def countcol(col):
+        return len(set(col))
+    
+    countcoludf = udf(countcol, IntegerType())
+    textDF = textDF.withColumn('textcountCol', countcoludf(textCol))
+    textDF = textDF.withColumn('lemcountCol', countcoludf(lemCol))
     return textDF
