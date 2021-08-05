@@ -388,7 +388,8 @@ class richness:
         email_text = utils.get_clean_text(msg)
         word_quantity = len(email_text.split())
         char_quantity = sum([len(x) for x in email_text.split()])
-        richness = word_quantity/char_quantity
+        richness = word_quantity/(char_quantity+1)
+        return richness
     def get_name(self):
         return 'richness'
 
@@ -415,6 +416,31 @@ class script_parts:
     def get_name(self):
         return 'script_parts'
 
+#Returns the number of URLs which have an actual domain (i.e., they do not have a direct IP address)
+class named_urls:
+    def get_feat(self, msg):
+        nurls = NURLs().get_feat(msg)
+        nipurls = ipurls().get_feat(msg)
+        named_urls = nurls - nipurls
+        return named_urls
+    def get_name(self):
+        return 'named_urls'
+
+#Returns the number of images with a clickable link in the email
+class link_images:
+    def get_feat(self, msg):
+        # soup = BeautifulSoup(msg, "lxml")
+        count=0
+        payload_dict = utils.getpayload_dict(msg)
+        for part in payload_dict:
+            if('text' in part['mimeType'] or 'multipart' in part['mimeType']):
+                soup = BeautifulSoup(part['payload'], "lxml")
+                for a in soup.find_all("a", href=True):
+                    count += len(re.findall(r".+(?=jpg|png|jpeg)", a['href']))
+        return count
+    def get_name(self):
+        return 'link_images'
+
 
 #Used to help the next function to operate properly.
 def mbox_reader(stream):
@@ -435,8 +461,8 @@ def mboxText2DF(filepath, Phishy, limit=5000):
     finders = [NURLs(), encoding(), nparts(), hasHTML(), attachments(),
                badwords(), ipurls(), diffhref(), forms(), scripts(),
                ndots(), nports(), nrecs(), checkdomains(), subject_badwords(),
-               script_parts(), distinct_words(), char_count(),
-               word_count(), RE_presence()]
+               script_parts(), distinct_words(), char_count(), word_count(), richness(),
+               RE_presence(), link_images(), named_urls(), year()]
 
     i = 1
     for message in mbox:
@@ -962,9 +988,9 @@ def zeroSparse2Dense(DF, col='Word2vec'):
 
 
 def getdata(halflimit=2200, inputCol="lemmatized"):
-    global DF
-    DF = trycreateDF(halflimit)
-    # DF = spark.read.load("df_balanced_word2vec.parquet")
+    # global DF
+    # DF = trycreateDF(halflimit)
+    DF = spark.read.load("TRAINING_SA_Enron_Nazario_before2014_5000-5000_dense.parquet")
     #A list of Feature Retrievers and one of Classifiers is made to test every combination.
     feats = [propstages(DF)] + textstages(inputCol=inputCol) + hybridstages(DF, inputCol=inputCol)
     classifiers = getclassifiers()
